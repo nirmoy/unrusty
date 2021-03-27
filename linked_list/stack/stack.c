@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <pthread.h>
 #include <stdlib.h>
+#include <assert.h>
 
 struct node {
 	int val;
@@ -55,13 +56,33 @@ void push(struct stack *st, int val)
 	return;
 }
 
-void print_list(struct node *head)
+int pop(struct stack *st)
 {
+	int val;
+
+	if (!st || !st->head)
+		return -1;
+
+	pthread_mutex_lock(&st->lock);
+	val = st->head->val;
+	st->head = st->head->next;
+	pthread_mutex_unlock(&st->lock);
+
+	return val;
+}
+
+int print_list(struct node *head)
+{
+	int i = 0;
+
 	while(head) {
-		printf("%d", head->val);
+		printf("%d ", head->val);
 		head = head->next;
+		i++;
 	}
-	printf("\n");
+	if (i)
+		printf("\n");
+	return i;
 }
 
 void *thread1_main(void *data)
@@ -69,10 +90,15 @@ void *thread1_main(void *data)
 	struct stack *st = data;
 	int i;
 
-	for (i = 0; i < 10; i++ ) {
+	for (i = 0; i < 10000; i++ ) {
 		if (i%2)
 			push(st, i);
 	}
+	for (i = 0; i < 10000; i++ ) {
+		if (i%2)
+			pop(st);
+	}
+
 	return NULL;
 }
 
@@ -81,9 +107,13 @@ void *thread2_main(void *data)
 	struct stack *st = data;
 	int i;
 
-	for (i = 0; i < 10; i++ ) {
+	for (i = 0; i < 10000; i++ ) {
 		if (!(i%2))
 			push(st, i);
+	}
+	for (i = 0; i < 10000; i++ ) {
+		if (!(i%2))
+			pop(st);
 	}
 	return NULL;
 }
@@ -98,6 +128,6 @@ int main(void)
 	pthread_join(thread_ids[0], NULL);
 	pthread_join(thread_ids[1], NULL);
 
-	print_list(st->head);
+	assert(print_list(st->head) == 0);
 
 }
