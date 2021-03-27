@@ -3,6 +3,10 @@
 #include <stdlib.h>
 #include <assert.h>
 
+
+#define NUM_ITR 1000
+#define NUM_THREAD 1000
+
 struct node {
 	int val;
 	struct node *next;
@@ -11,6 +15,12 @@ struct node {
 struct stack {
 	struct node *head;
 	pthread_mutex_t lock;
+};
+
+struct thread_data {
+	int iterations;
+	struct stack *st;
+	unsigned int thread_id;
 };
 
 struct node *new_node(int val)
@@ -23,6 +33,7 @@ struct node *new_node(int val)
 	new->next = NULL;
 	return new;
 }
+
 struct stack *new_stack()
 {
 	struct stack * new = malloc(sizeof(struct stack));
@@ -32,8 +43,8 @@ struct stack *new_stack()
 	new->head = NULL;
 	pthread_mutex_init(&new->lock, NULL);
 	return new;
-
 }
+
 void push(struct stack *st, int val)
 {
 	if (!st)
@@ -56,19 +67,31 @@ void push(struct stack *st, int val)
 	return;
 }
 
-int pop(struct stack *st)
+struct node *pop(struct stack *st)
 {
-	int val;
+	struct node *popped;
 
-	if (!st || !st->head)
-		return -1;
+	if (!st)
+		return NULL;
 
 	pthread_mutex_lock(&st->lock);
-	val = st->head->val;
+	if (!st->head) {
+		pthread_mutex_unlock(&st->lock);
+		return NULL;
+	}
+	popped = st->head;
 	st->head = st->head->next;
 	pthread_mutex_unlock(&st->lock);
 
-	return val;
+	return popped;
+}
+
+void free_stack(struct stack *st)
+{
+	struct node *n;
+
+	while((n = pop(st)))
+		free(n);
 }
 
 int print_list(struct node *head)
@@ -82,52 +105,58 @@ int print_list(struct node *head)
 	}
 	if (i)
 		printf("\n");
+
 	return i;
 }
 
 void *thread1_main(void *data)
 {
-	struct stack *st = data;
+	struct thread_data *in = data;
 	int i;
 
-	for (i = 0; i < 10000; i++ ) {
-		if (i%2)
-			push(st, i);
+	for (i = 0; i < in->iterations; i++ ) {
+		if (i%in->thread_id)
+			push(in->st, i);
 	}
-	for (i = 0; i < 10000; i++ ) {
-		if (i%2)
-			pop(st);
+
+	for (i = 0; i < in->iterations; i++ ) {
+		if (i%in->thread_id)
+			pop(in->st);
 	}
 
 	return NULL;
 }
 
-void *thread2_main(void *data)
+void test(int num_threads, int iterations)
 {
-	struct stack *st = data;
+	pthread_t *thread_ids = malloc(sizeof(pthread_t)*num_threads);
+	struct stack *st = new_stack();
 	int i;
 
-	for (i = 0; i < 10000; i++ ) {
-		if (!(i%2))
-			push(st, i);
+	for (i = 0; i < num_threads; i++) {
+		struct thread_data data;
+		data.st = st;
+		data.thread_id = i;
+		data.iterations = iterations;
+		pthread_create(&thread_ids[i], NULL, thread1_main, &data);
 	}
-	for (i = 0; i < 10000; i++ ) {
-		if (!(i%2))
-			pop(st);
+
+	for (i = 0; i < num_threads; i++) {
+		pthread_join(thread_ids[i], NULL);
 	}
-	return NULL;
+	free(thread_ids);
+	assert(print_list(st->head) == 0);
 }
 
 int main(void)
 {
-	pthread_t thread_ids[2];
 	struct stack *st = new_stack();
-
-	pthread_create(&thread_ids[0], NULL, thread1_main, st);
-	pthread_create(&thread_ids[1], NULL, thread2_main, st);
-	pthread_join(thread_ids[0], NULL);
-	pthread_join(thread_ids[1], NULL);
-
+	push(st, 100);
+	push(st, 200);
+	push(st, 300);
+	assert(print_list(st->head) == 3);
+	free_stack(st);
 	assert(print_list(st->head) == 0);
-
+	test(NUM_THREAD, NUM_ITR);
+	return 0;
 }
